@@ -16,10 +16,36 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
-var url = flag.String("url", "amqp://usr:pwd@elephant.rmq.cloudamqp.com/rwpvuvoo", "amqp url")
+var (
+	url *string
+)
 
 type posConnection struct {
 	db *mgo.Database
+}
+
+func getCloudAmqpURL() (url *string) {
+	amqpUser := os.Getenv("CLOUD_AMQP_USER")
+	missingEnv := false
+
+	if amqpUser == "" {
+		missingEnv = true
+		log.Printf("$CLOUD_AMQP_USER must be set")
+	}
+
+	amqpPassword := os.Getenv("CLOUD_AMQP_PASSWORD")
+
+	if amqpPassword == "" {
+		missingEnv = true
+		log.Printf("$CLOUD_AMQP_PASSWORD must be set")
+	}
+
+	if missingEnv {
+		panic("CloudAmqp environment variables not configured")
+	}
+
+	url = flag.String("url", fmt.Sprintf("amqp://%s:%s@elephant.rmq.cloudamqp.com/%s", amqpUser, amqpPassword, amqpUser), "amqp url")
+	return url
 }
 
 func showUsageAndStatus() {
@@ -31,6 +57,7 @@ func showUsageAndStatus() {
 
 func main() {
 
+	url = getCloudAmqpURL()
 	flag.Parse()
 
 	showUsageAndStatus()
