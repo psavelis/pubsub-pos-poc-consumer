@@ -13,6 +13,7 @@ import (
 	model "github.com/psavelis/goa-pos-poc/app"
 	"github.com/streadway/amqp"
 	mgo "gopkg.in/mgo.v2"
+	"gopkg.in/mgo.v2/bson"
 )
 
 var url = flag.String("url", "amqp://usr:pwd@elephant.rmq.cloudamqp.com/rwpvuvoo", "amqp url")
@@ -69,22 +70,17 @@ func main() {
 	// Declare and register a consumer
 	cns := cony.NewConsumer(
 		que,
-		cony.AutoAck(), // Auto sign the deliveries
+		//cony.AutoAck(), // Auto sign the deliveries
 	)
 	cli.Consume(cns)
 	for cli.Loop() {
 		select {
 		case msg := <-cns.Deliveries():
 			log.Printf("Received body: %q\n", msg.Body)
-			// If when we built the consumer we didn't use
-			// the "cony.AutoAck()" option this is where we'd
-			// have to call the "amqp.Deliveries" methods "Ack",
-			// "Nack", "Reject"
-			//
-			// msg.Ack(false)
-			// msg.Nack(false)
-			// msg.Reject(false)
-			handleMessage(&msg, db)
+
+			// starts a new `goroutine` to process the msg.
+			go handleMessage(&msg, db)
+
 		case err := <-cns.Errors():
 			fmt.Printf("Consumer error: %v\n", err)
 		case err := <-cli.Errors():
@@ -93,21 +89,42 @@ func main() {
 	}
 }
 
-func handleMessage(msg *amqp.Delivery, conn *posConnection) {
+// handleMessage process a new purchase message
+func handleMessage(msg *amqp.Delivery, conn *posConnection) error {
 	// reuse from connection pool
 	session := conn.db.Session.Copy()
 	defer session.Close()
 
 	// defines an object with Purchase model defined in POS API
 	payload := model.Purchase{}
+	payload.Status = "FINISHED"
 
 	// deserializes the payload
 	if err := json.Unmarshal(msg.Body, &payload); err != nil {
+		fmt.Printf("Consumer failed to deserialize payload: %v\n", err)
 		msg.Nack(false, true) //failed to deserialize, requeues the message
+		return err
 	}
 
-	// TODO: process the new purchase and update status to `FINISHED``
+	collection := session.DB("services-pos").C("Purchase")
 
+	err := collection.Update(bson.M{"_id": payload.TransactionID}, bson.M{"$set": bson.M{"status": payload.Status}})
+
+	if err != nil {
+		fmt.Printf("Consumer failed to update Purchase (ID=%q) status: %v\n", payload.TransactionID, err)
+		msg.Nack(false, true)
+		return err
+	}
+
+	// If when we built the consumer we didn't use
+	// the "cony.AutoAck()" option this is where we'd
+	// have to call the "amqp.Deliveries" methods "Ack",
+	// "Nack", "Reject"
+	//
+	// msg.Ack(false)
+	// msg.Nack(false)
+	// msg.Reject(false)
+	return msg.Ack(false)
 }
 
 func getDatabase() (db *posConnection) {
