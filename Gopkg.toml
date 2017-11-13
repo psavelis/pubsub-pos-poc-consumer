@@ -36,3 +36,9 @@
 [[constraint]]
   branch = "v2"
   name = "gopkg.in/mgo.v2"
+
+  [metadata.heroku]
+  root-package = "github.com/psavelis/pubsub-pos-poc-consumer"
+  go-version = "go1.8.3"
+  install = [ "./cmd/...", "." ]
+  ensure = "true"
