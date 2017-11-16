@@ -1,1 +1,1 @@
-worker: pubsub-pos-poc-consumer
+worker: bin/pubsub-pos-poc-consumer
